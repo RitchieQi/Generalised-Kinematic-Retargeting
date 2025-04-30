@@ -1,0 +1,18 @@
+#image
+*.png
+
+#saved json
+*.json
+
+#video
+*.mp4
+
+#robot description
+*.urdf
+urdf/*
+
+#log
+*.txt
+
+#model
+*.tar
