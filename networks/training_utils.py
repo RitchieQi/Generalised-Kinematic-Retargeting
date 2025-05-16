@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 import torch.optim
-from model import get_model
+from networks.model import get_model
 from utils import Timer
 from dataset import CtcSDF_dataset
 class Base_trainer(ABC):

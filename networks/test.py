@@ -17,15 +17,6 @@ def parse_args():
     parser.add_argument('opts', help="Modify config options using the command-line", default=None, nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
-    # if not args.gpu_ids:
-    #     assert 0, "Please set propoer gpu ids"
-
-    # if '-' in args.gpu_ids:
-    #     gpus = args.gpu_ids.split('-')
-    #     gpus[0] = int(gpus[0])
-    #     gpus[1] = int(gpus[1]) + 1
-    #     args.gpu_ids = ','.join(map(lambda x: str(x), list(range(*gpus))))
-
     return args
 def ddp_setup(rank: int, world_size: int):
    """

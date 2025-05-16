@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 from utils import export_pose_results, reduce_tensor
-from training_utils import Trainer, Tester
+from networks.training_utils import Trainer, Tester
 import os.path as osp
 import torch.multiprocessing as mp
 from torch.distributed import init_process_group, destroy_process_group, all_reduce

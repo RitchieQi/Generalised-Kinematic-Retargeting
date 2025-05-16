@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- encoding: utf-8 -*-
-#@File :img_utils.py
-#@Date :2022/09/20 15:50:32
-#@Author :zerui chen
-#@Contact :zerui.chen@inria.fr
-
 import numpy as np
 import cv2
 import torch

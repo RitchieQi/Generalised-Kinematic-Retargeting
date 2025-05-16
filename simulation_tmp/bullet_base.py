@@ -6,30 +6,81 @@ import pybullet_utils.bullet_client as bc
 import numpy as np
 from typing import List, Optional, Tuple, Union, Iterator, Any, Dict
 from dex_ycb_toolkit.dex_ycb import DexYCBDataset
-import json
 from scipy.spatial.transform import Rotation as R
-import torch
+import trimesh as tm
+import cv2
+import os
 
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-from abc import ABC, abstractmethod
-
-import time
 class PybulletBase:
     def __init__(
         self,
         connection_mode: str = "GUI",
     ):
         self.connect = p.DIRECT if connection_mode == "DIRECT" else p.GUI
+        # self.pc = bc.BulletClient(connection_mode=self.connect)
+        # self.pc.setAdditionalSearchPath(pd.getDataPath())
+        # # self.pc.loadURDF("plane.urdf", [0, 0, -0.5], useFixedBase=True)
+        # self.pc.setTimeStep(1 / 1000)
+        # self.pc.setGravity(0, 0, -9.8)
+        # self.pc.setPhysicsEngineParameter(numSolverIterations=200)  # Increase solver accuracy
+        # self.pc.resetDebugVisualizerCamera(cameraDistance=0.8, cameraYaw=90, cameraPitch=-30, cameraTargetPosition=[0, 0, 0])
+        # self.pc.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
+        # # self.pc.setGravity(0, 0, 0) #set gravity to 0 as the optimization is done with the net force = 0 not the net force = gravity
+        # self._bodies_idx = {}
+        # self.pc.setRealTimeSimulation(False)
+        # self.n_steps = 0
+        # self.lowest_point = None
+        # self.control_joint = None
+    
+    def _connect_(self) -> None:
+        """Connect to the simulation"""
         self.pc = bc.BulletClient(connection_mode=self.connect)
         self.pc.setAdditionalSearchPath(pd.getDataPath())
-        self.pc.loadURDF("plane.urdf", [0, 0, -0.5], useFixedBase=True)
+        # self.pc.loadURDF("plane.urdf", [0, 0, -0.5], useFixedBase=True)
         self.pc.setTimeStep(1 / 1000)
         self.pc.setGravity(0, 0, -9.8)
+        self.pc.setPhysicsEngineParameter(numSolverIterations=200)  # Increase solver accuracy
+        
+        
+        camera_distance = 0.6 # Distance from camera to target
+        camera_yaw = 0       # Horizontal angle (degrees)
+        camera_pitch = -30     # Vertical angle (degrees)
+        camera_target = [0, 0, 0]
+        
+        
+        self.pc.resetDebugVisualizerCamera(cameraDistance=camera_distance, cameraYaw=camera_yaw, cameraPitch=camera_pitch, cameraTargetPosition=camera_target)
+        self.pc.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
+        
+        self.width, self.height = 1920, 1080
+
+        self.view_matrix = self.pc.computeViewMatrixFromYawPitchRoll(
+                    cameraTargetPosition=camera_target,
+                    distance=camera_distance,
+                    yaw=camera_yaw,
+                    pitch=camera_pitch,
+                    roll=0,
+                    upAxisIndex=2  # Z-axis is up (2 for Z, 1 for Y)
+                    )
+
+        fov = 60  # Degrees
+        aspect = self.width / self.height
+        near, far = 0.1, 100.0
+        self.proj_matrix = p.computeProjectionMatrixFOV(
+            fov=fov,
+            aspect=aspect,
+            nearVal=near,
+            farVal=far
+)
+
+        
+        # self.pc.setGravity(0, 0, 0) #set gravity to 0 as the optimization is done with the net force = 0 not the net force = gravity
         self._bodies_idx = {}
         self.pc.setRealTimeSimulation(False)
         self.n_steps = 0
+        self.lowest_point = None
         self.control_joint = None
+        
+
     @property
     def dt(self):
         return self.timeStep * self.n_steps
@@ -364,14 +415,28 @@ class PybulletBase:
             body_name (str): The name of the body. Must be unique in the sim.
         """
         self._bodies_idx[body_name] = self.pc.loadURDF(**kwargs)
+
+
         
-    def load_obj_as_mesh(self, body_name: str, obj_path: str, position: np.ndarray, orientation: np.ndarray, obj_mass: float=0.0) -> None:
+    def load_obj_as_mesh(self, body_name: str, obj_path: str, position: np.ndarray, orientation: np.ndarray, obj_mass: float=0.0, frictional_coe: float = 0.0) -> None:
         """Load obj file and create mesh/collision shape from it.
             ref: https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/createVisualShape.py
         Args:
             body_name (str): The name of the body. Must be unique in the sim.
             obj_path (str): Path to the obj file.
         """
+        """
+        Convert the mesh to vhacd
+        """
+        
+        obj_fn = obj_path.split(os.sep)[-1]
+        obj_fn_no_ext = obj_fn.split('.')[0]
+        vhacd_path = os.path.join(os.path.dirname(obj_path), obj_fn_no_ext + '_vhacd.obj')
+        vhacd_log_path = os.path.join(os.path.dirname(obj_path), obj_fn_no_ext + '_vhacd.log')
+        
+        if not os.path.exists(vhacd_path):
+            p.vhacd(fileNameIn=obj_path, fileNameOut=vhacd_path, fileNameLogging=vhacd_log_path, resolution=50000)
+        
         obj_visual_shape_id = self.pc.createVisualShape(
                                                     shapeType=p.GEOM_MESH, 
                                                     fileName=obj_path, 
@@ -380,10 +445,12 @@ class PybulletBase:
 
         obj_collision_shape_id = self.pc.createCollisionShape(
                                                 shapeType = p.GEOM_MESH,
-                                                fileName = obj_path,
-                                                flags=p.GEOM_FORCE_CONCAVE_TRIMESH |
-                                                p.GEOM_CONCAVE_INTERNAL_EDGE,
-                                                meshScale=[1, 1, 1])
+                                                fileName = vhacd_path,
+                                                # flags=p.GEOM_FORCE_CONCAVE_TRIMESH |
+                                                # p.GEOM_CONCAVE_INTERNAL_EDGE,
+                                                # flags=p.GEOM_FORCE_CONVEX_MESH,
+                                                meshScale=[1, 1, 1],
+                                                )
         
         self._bodies_idx[body_name] = self.pc.createMultiBody(
                                 baseMass=obj_mass,
@@ -393,7 +460,35 @@ class PybulletBase:
                                 basePosition=position,
                                 baseOrientation=orientation,
                                 useMaximalCoordinates=True)
-
+        
+        self.pc.changeDynamics(self._bodies_idx[body_name], -1, 
+                                lateralFriction=frictional_coe, 
+                                restitution=0.0,
+                                spinningFriction=0.01,
+                                rollingFriction=0.01,
+                                mass = obj_mass,
+                                contactStiffness=5000,
+                                contactDamping=200,
+                                collisionMargin=0.001,
+                                ccdSweptSphereRadius=0.001,
+                                contactProcessingThreshold=0.001,
+                                )
+        
+        mesh = tm.load(obj_path, force='mesh', process=False)
+        mesh.apply_transform(np.vstack((np.hstack((R.from_quat(orientation).as_matrix(), position.reshape(3,1))), np.array([0, 0, 0, 1]))))
+        verts = np.array(mesh.vertices)
+        lowest_point_z = np.min(verts[:,2])
+        self.lowest_point = lowest_point_z
+        
+        
+        # visual_data = self.pc.getVisualShapeData(self._bodies_idx[body_name])
+        
+    def load_plane(self) -> None:
+        if self.lowest_point is None:
+            raise ValueError("Please load an object first.")
+        self._bodies_idx["plane"] = self.pc.loadURDF("plane.urdf", [0, 0, self.lowest_point-0.5], useFixedBase=True)
+        self.pc.changeDynamics(self._bodies_idx["plane"], -1, lateralFriction=1.0, restitution=0.0)
+        
     def set_lateral_friction(self, body: str, link: list, lateral_friction: float) -> None:
         """Set the lateral friction of a link.
 
@@ -437,6 +532,36 @@ class PybulletBase:
             spinningFriction=spinning_friction,
         )
 
+    def set_rolling_friction(self, body: str, link: int, rolling_friction: float) -> None:
+        """Set the rolling friction of a link.
+
+        Args:
+            body (str): Body unique name.
+            link (int): Link index in the body.
+            rolling_friction (float): Rolling friction.
+        """
+        self.pc.changeDynamics(
+            bodyUniqueId=self._bodies_idx[body],
+            linkIndex=link,
+            rollingFriction=rolling_friction,
+        )
+        
+    def set_friction_all(self, body: str, lateral_friction: float) -> None:
+        """Set the lateral friction of all links.
+
+        Args:
+            body (str): Body unique name.
+            lateral_friction (float): Lateral friction.
+        """
+        for i in range(-1, self.get_num_joints(body)):
+            self.pc.changeDynamics(
+                bodyUniqueId=self._bodies_idx[body],
+                linkIndex=i,
+                lateralFriction=lateral_friction,
+                spinningFriction=0.01,
+                rollingFriction=0.01,
+            )
+            
     def remove_body(self, body: str) -> None:
         """Remove the body.
 
@@ -465,6 +590,8 @@ class PybulletBase:
             )
     
     def disable_motor(self, body: str) -> None:
+        if not self.control_joint:
+            self.get_controllable_joints(body)
         for i in self.control_joint:
             self.pc.setJointMotorControl2(
                 bodyIndex=self._bodies_idx[body],
@@ -473,295 +600,57 @@ class PybulletBase:
                 targetPosition=0,
                 force=0,
             )
+
+    def setup_dynamics(self, body: str) -> None:
+        self.pc.changeDynamics(self._bodies_idx[body], -1, 
+                                   mass=0.1,
+                                   restitution=0.0,
+                                   )
+        for i in range(0, self.get_num_joints(body)):
+            self.pc.changeDynamics(
+                bodyUniqueId=self._bodies_idx[body],
+                linkIndex=i,
+                restitution=0.0,
+                contactStiffness=5000,
+                contactDamping=200,
+                collisionMargin=0.001,
+                ccdSweptSphereRadius=0.001,
+                contactProcessingThreshold=0.001,
+                )
+                
+    def start_record(self, file_name: str) -> None:
+        self.pc.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, file_name)
+    
+    def stop_record(self) -> None:
+        self.pc.stopStateLogging(p.STATE_LOGGING_VIDEO_MP4)
+        
+    def reset_simulation(self) -> None:
+        self.pc.resetSimulation()
+        for constraint_id in range(self.pc.getNumConstraints()):
+            self.pc.removeConstraint(constraint_id)
+
+        # for body_id in range(self.pc.getNumBodies()):
+        #     self.pc.applyExternalForce(body_id, -1, [0, 0, 0], [0, 0, 0], self.pc.WORLD_FRAME)
             
-
-class robot(ABC):
-    def __init__(
-        self,
-        sim: PybulletBase,
-        FixedBase: bool = True,
-    )-> None:
-        self.sim = sim
-        self.body_name = None
-        self.urdf_path = None
-        self.base_position = None
-        self.base_orientation = None
-        self.endeffect = None
-        self.init_joint = None
-        self.calibration_rot = None
-        self.calibration_trans = None
-        self.set_robot_info()
-        self.load_robot(FixedBase)
-        self.fixedbase = FixedBase
+    def remove_all(self) -> None:
+        objects = [self.pc.getBodyUniqueId(i) for i in range(self.pc.getNumBodies())]
         
-    @abstractmethod
-    def set_robot_info(self) -> None:
-        pass
+        for obj in objects:
+            self.pc.removeBody(obj)
     
-    def load_robot(self, FixedBase) -> None:
-        if self.urdf_path is None:
-            self.set_robot_info()
+    def get_camera_image(self) -> np.ndarray:
+
         
-        self.sim.loadURDF(
-            body_name=self.body_name,
-            fileName=self.urdf_path,
-            basePosition=self.base_position,
-            baseOrientation=self.base_orientation,
-            useFixedBase=FixedBase,
-        )
-        
-        #self.sim.set_joint_angles_dof(self.body_name, angles=self.init_joint)
+        width_m, height_m, rgb, depth, seg = self.pc.getCameraImage(self.width, 
+                                                                    self.height,
+                                                                    self.view_matrix,
+                                                                    self.proj_matrix,
+                                                                    renderer=p.ER_BULLET_HARDWARE_OPENGL)
+        rgb = np.array(rgb, dtype=np.uint8)
+        rgb_array = rgb.reshape((self.height, self.width, 4))[:, :, :3]  # Remove alpha
+        bgr_array = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)  
+        return bgr_array
     
-    def reset(self, position: np.ndarray, orientation: np.ndarray, joints_val: np.ndarray, lateral_mu: float) -> None:
-        self.sim.set_base_pose(self.body_name, position, orientation)
-
-        self.sim.set_joint_angles_dof(self.body_name, angles=joints_val)
-        self.sim.set_lateral_friction(self.body_name, link=self.endeffect, lateral_friction=lateral_mu)
-    
-    def pre_transformation(self, rot: np.ndarray, trans: np.ndarray):
-        R_f = np.matmul(rot, self.calibration_rot)
-        T_f = -np.matmul(rot, np.matmul(self.calibration_rot, self.calibration_trans.reshape(3,1))) + trans.reshape(3,1)
-
-        global_rot = R.from_matrix(R_f).as_quat()
-        global_trans = T_f.reshape(3)
-        return global_rot, global_trans
-    
-    def step(self) -> None:
-        self.sim.step()
-    
-    def get_link_position(self, link: int) -> np.ndarray:
-        """Returns the position of a link as (x, y, z)
-
-        Args:
-            link (int): The link index.
-
-        Returns:
-            np.ndarray: Position as (x, y, z)
-        """
-        return self.sim.get_link_position(self.body_name, link)
-    
-    def get_joint_angle(self, joint: int) -> float:
-        """Returns the angle of a joint
-
-        Args:
-            joint (int): The joint index.
-
-        Returns:
-            float: Joint angle
-        """
-        return self.sim.get_joint_angle(self.body_name, joint)
-    
-    def get_joint_angles_dof(self) -> np.ndarray:
-        """Returns the angles of all joints.
-
-        Returns:
-            np.ndarray: Joint angles
-        """
-        return self.sim.get_joint_angles_dof(self.body_name)
-
-    def get_joint_velocities_dof(self) -> np.ndarray:
-        """Returns the velocities of all joints.
-
-        Returns:
-            np.ndarray: Joint velocities
-        """
-        return self.sim.get_joint_velocities_dof(self.body_name)
-
-    def set_joint_angles(self, angles: list) -> None:
-        """Set the joint position of a body. Can induce collisions.
-
-        Args:
-            angles (list): Joint angles.
-        """
-        self.sim.set_joint_angles(self.body_name, joints=self.joint_indices, angles=angles)
-        
-    def disable_motor(self) -> None:
-        "disable motor"
-        self.sim.disable_motor(self.body_name)
-    
-    
-    
-    
-    def inverse_kinematics(self, link: int, position: np.ndarray, orientation: np.ndarray) -> np.ndarray:
-        """Compute the inverse kinematics and return the new joint values.
-
-        Args:
-            link (int): The link.
-            position (x, y, z): Desired position of the link.
-            orientation (x, y, z, w): Desired orientation of the link.
-
-        Returns:
-            List of joint values.
-        """
-        inverse_kinematics = self.sim.inverse_kinematics(self.body_name, link=link, position=position, orientation=orientation)
-        return inverse_kinematics
-    
-    def position_control(self, target_q: list) -> None:
-        """Position control the robot.
-
-        Args:
-            target_q (list): Target joint angles.
-        """
-        self.sim.position_control(self.body_name, target_q)
-
-    def has_reached(self, target_position: np.ndarray, threshold: float) -> bool:
-        joint_position = self.get_joint_angles_dof()
-        return np.linalg.norm(joint_position - target_position) < threshold
-    
-
-class mountingBase():
-    def __init__(
-        self,
-        sim: PybulletBase,
-        Position: List[float],
-        Orientation: List[float],
-    ) -> None:
-        self.sim = sim
-        self.body_name = "xyz_base"
-        urdf_path = osp.join(osp.dirname(__file__), 'xyz.urdf')
-        self.sim.loadURDF(
-            urdf_path,
-            [0, 0, 0],
-            useFixedBase=True,
-        )
-        self.num_joints = self.sim.get_num_joints(self.body_name)
-        
-        self.sim.setJointMotorControlArray(
-            self.body_name,
-            list(range(self.num_joints)),
-            self.sim.POSITION_CONTROL,
-            targetPositions=[0] * self.num_joints,
-            forces=[1000] * self.num_joints,
-        )
-        self.JOINT_TYPES = ["REVOLUTE", "PRISMATIC", "SPHERICAL", "PLANAR", "FIXED"]
-
-        joint_info = {}
-        for joint in range(self.num_joints):
-            joint = self.parse_joint_info(self.body_name, joint)
-            joint_info[joint['link_name']] = joint
-        self.joint_info = joint_info
-    def parse_joint_info(self, body_id: int, joint_id: int) -> Dict[str, Any]:
-        info = self.sim.getJointInfo(body_id, joint_id)
-        joint_info = {
-            'id': info[0],
-            'link_name': info[12].decode("utf-8"),
-            'joint_name': info[1].decode("utf-8"),
-            'type': self.JOINT_TYPES[info[2]],
-            'friction': info[7],
-            'lower_limit': info[8],
-            'upper limit': info[9],
-            'max_force': info[10],
-            'max_velocity': info[11],
-            'joint_axis': info[13],
-            'parent_pos': info[14],
-            'parent_orn': info[15]
-        }
-        return joint_info
-    
-    @property
-    def ee_link_id(self) -> int:
-        return self.joint_info['end_effector_link']['id']
-
-
-
-
-if __name__ == "__main__":
-    def sort_joint(body: int, joint: int):
-        Dof = 0
-        q_i = []
-
-        for i in range(joint):
-            joint_info = p.getJointInfo(body, i)
-            print(joint_info)
-            if joint_info[2] == 0:
-                Dof += 1
-                q_i.append(i)
-        return Dof, q_i
-    def parse_joint_info(body_id: int, joint_id: int) -> Dict[str, Any]:
-        info = p.getJointInfo(body_id, joint_id)
-        joint_info = {
-            'id': info[0],
-            'link_name': info[12].decode("utf-8"),
-            'joint_name': info[1].decode("utf-8"),
-            'friction': info[7],
-            'lower_limit': info[8],
-            'upper limit': info[9],
-            'max_force': info[10],
-            'max_velocity': info[11],
-            'joint_axis': info[13],
-            'parent_pos': info[14],
-            'parent_orn': info[15]
-        }
-        return joint_info
-    def mounting_gripper(gripper_id: int):
-        pose_mount, quat_mount = p.getBasePositionAndOrientation(gripper_id)
-        #mount = mountingBase(p, pose_mount, quat_mount)
-        urdf_path = osp.join(osp.dirname(__file__), 'xyz.urdf')
-        mount = p.loadURDF(urdf_path, basePosition=pose_mount, baseOrientation=quat_mount, useFixedBase=True)
-        num_joints = p.getNumJoints(mount)
-        joint_info = {} 
-        for joint in range(num_joints):
-            joint_ = parse_joint_info(mount, joint)
-            joint_info[joint_['link_name']] = joint_
-            
-        constraint_id = p.createConstraint(mount, joint_info['end_effector_link']['id'], gripper_id, -1, 
-            jointType=p.JOINT_FIXED, jointAxis=[0, 0, 0],
-            parentFramePosition=[0, 0, 0], childFramePosition=[0, 0, 0],
-            parentFrameOrientation=[0, 0, 0, 1], childFrameOrientation=[0, 0, 0, 1]
-        )
-        
-        return mount, constraint_id
-    
-    p.connect(p.GUI)
-    p.setAdditionalSearchPath(pd.getDataPath())
-    urdf_path = osp.join(osp.dirname(__file__), '..', '..', '..', 'model', 'urdf', 'barrett_adagrasp','model.urdf')
-    sdID = p.loadURDF(urdf_path, [0, 0, 0], useFixedBase=False)
-    p.changeDynamics(sdID, -1, mass=1.0)
-
-    
-    mounted_gripper, c_id = mounting_gripper(sdID)
-    # sdID = mounted_gripper
-    
-    constraint_info = p.getConstraintInfo(c_id)
-    print("constraint info",constraint_info)
-    
-    
-    desired_position = [0.5, 0, 0]
-    desired_orientation = p.getQuaternionFromEuler([0, 0, 1.57])
-    
-    
-    num_joints = p.getNumJoints(mounted_gripper) # 30 no matter the hand is fixed or not
-    print("num_j",num_joints)
-    
-    _,_ = sort_joint(sdID, p.getNumJoints(sdID))
-    dof, q_i = sort_joint(mounted_gripper, p.getNumJoints(mounted_gripper))
-    print(dof, q_i)
-    """
-    fixed:   24 [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 15, 16, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28]
-    floating:24 [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 15, 16, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28]
-    
-    """
-    # jointStates = p.getJointStates(sdID, q_i)
-    # q1 = []
-    # for i in range(len(q_i)):
-    #     q1.append(jointStates[i][0])
-    # q = np.array(q1)
-    # M = p.calculateMassMatrix(sdID, q1)
-    # print(M)
-    
-    # base_joint = p.createConstraint(sdID, -1, -1, -1, p.JOINT_FIXED, [0, 0, 0], [0, 0, 0], [0, 0, 0])
-
-    while True:
-        # p.changeConstraint(base_joint, desired_position, desired_orientation)
-        for i in range(p.getNumJoints(mounted_gripper)):
-            p.setJointMotorControl2(bodyIndex=mounted_gripper,
-                                    jointIndex=i,
-                                    controlMode=p.POSITION_CONTROL,
-                                    targetPosition=desired_position[i],
-                                    )
-            # print(p.getJointState(mounted_gripper, i))    
-        p.stepSimulation()
-        time.sleep(1/240)
-        
-    p.disconnect()
-    
+    def reset_jointstate(self, body: str, joint: np.ndarray ) -> None:
+        for i in range(self.get_num_joints(body)):
+            self.pc.resetJointState(self._bodies_idx[body], i, joint[i])
