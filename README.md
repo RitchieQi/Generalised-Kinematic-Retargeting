@@ -2,10 +2,10 @@
 
 TODO:
 - [x] dataset clean up
-- [] dataset test
+- [ ] dataset test
 - [x] network clean up
-- [] network test
-- [] simulation clean up
-- [] simulation test
-- [] optimisation clean up
-- [] optimisation test
+- [ ] network test
+- [ ] simulation clean up
+- [ ] simulation test
+- [ ] optimisation clean up
+- [ ] optimisation test
