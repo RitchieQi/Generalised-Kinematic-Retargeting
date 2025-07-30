@@ -30,7 +30,8 @@ class PybulletBase:
         # self.pc.setRealTimeSimulation(False)
         # self.n_steps = 0
         # self.lowest_point = None
-        # self.control_joint = None
+        self.control_joint: list[float] = []
+        
     
     def _connect_(self) -> None:
         """Connect to the simulation"""
@@ -81,9 +82,9 @@ class PybulletBase:
         self.control_joint = None
         
 
-    @property
-    def dt(self):
-        return self.timeStep * self.n_steps
+    # @property
+    # def dt(self):
+    #     return self.timeStep * self.n_steps
     
     def step(self) -> None:
         self.pc.stepSimulation()
@@ -341,7 +342,7 @@ class PybulletBase:
         """
         return self.pc.getNumJoints(self._bodies_idx[body])
 
-    def get_controllable_joints(self, body: str) -> list:
+    def get_controllable_joints(self, body: str) -> None:
         """Get the indices of the controllable joints of the body.
 
         Args:

@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-import mathBox as mb
+import utils as mb
 
 class FCLoss:
     def __init__(self, device='cuda'):
@@ -78,42 +78,7 @@ class FCLoss:
         #sum_B = self.relu((torch.sum(w) - B)**2)
 
         return inter + sum_N #+ sum_B
-    # def linearized_cone(self, normal, f):
-    #     """
-    #     input:c
-    #     --------------------------------
-    #     normal: B x N x 3
-    #     f: B x N x 3
 
-    #     output:
-    #     --------------------------------
-    #     w: B x N x 4
-
-    #     Return the weights of the 4-edge friction pyramid
-    #     """
-    #     B = normal.shape[0]
-    #     N = normal.shape[1]
-    #     # construct 4-edge friction pyramid 
-    #     z = self.z.repeat([B, N, 1])
-    #     e1 = self.e1.repeat([B, N, 1])
-    #     e2 = self.e2.repeat([B, N, 1])
-    #     e3 = self.e3.repeat([B, N, 1])
-    #     e4 = self.e4.repeat([B, N, 1])
-
-    #     # f = w_0e_0 + , w > 0
-    #     # fe^-1 > 0
-    #     E = torch.stack([e1, e2, e3, e4], -2) # B x N x 4 x 3
-    #     T = mb.multi_rotation_vectors_batch(z, normal) # B x N x 3 x 3
-
-    #     #apple T to E
-    #     E_transed = torch.matmul(T, E.transpose(-2,-1)).transpose(-2,-1) # B x N x 4 x 3
-
-    #     E_pinv = torch.linalg.pinv(E_transed) # B x N x 4 x 3
-
-    #     print(E_pinv.shape)
-    #     w = torch.matmul(f.unsqueeze(-2), E_pinv).squeeze(-2)
-
-    #     return w
     def linearized_cone(self, normal, w):
         """
         input:
@@ -175,37 +140,6 @@ class FCLoss:
         # l8c = self.loss_8c(normal)
         # l8d = self.dist_loss(obj_code, x)
         return l8a, l8b
-    
-    
-
-
-
-
-
-
-
-if __name__ == "__main__":
-    # B = 2
-    # N = 3
-    # a = torch.rand(B, N, 3)
-
-    # b = torch.rand(B, N, 3)
-    # normlied_a = a / torch.linalg.norm(a, dim=2, keepdim=True)
-    # normlied_b = b / torch.linalg.norm(b, dim=2, keepdim=True)
-
-    # T = mb.multi_rotation_vectors_batch(normlied_a, normlied_b)
-    # print(T.shape)
-    # print(normlied_a.shape)
-    # #print((T@normlied_a).shape)
-    # print(torch.dist(T@(normlied_a.unsqueeze(-1)), normlied_b.unsqueeze(-1)))
-    # #print(torch.dist(T2@a, b))
-    # #print()
-    x = torch.rand(2, 3, 3).to('cuda')
-    w = torch.rand(2, 3, 4).to('cuda')
-    loss = FCLoss()
-    _,we = loss.linearized_cone(x, w)
-    wrench = loss.wrench_space(x,we)
-    print(_.shape)
 
 
     

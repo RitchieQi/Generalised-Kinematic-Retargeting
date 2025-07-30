@@ -1,8 +1,8 @@
-from CtcSDF.CtcDst import dexycb_testfullfeed, dexycb_trainfullfeed
-from CtcBot import CtcRobot, Shadow, Allegro, Barrett, Robotiq
+from dataset_opt import dexycb_testfullfeed
+from optimisation_tmp.robot import CtcRobot, Shadow, Allegro, Barrett, Robotiq
 import torch
 from tqdm import tqdm
-from CtcObj import object_sdf
+from optimisation_tmp.CtcObj import object_sdf
 from plotly import graph_objects as go
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data import Sampler
@@ -10,20 +10,14 @@ from typing import List
 import time
 import trimesh as tm
 from scipy.optimize import linear_sum_assignment
-from test import mesh_plot
-import icp
+import optimisation_tmp.icp as icp
 import itertools
 import os
 import json
-# from viz_tool import sim_result_loader
 osp = os.path
 import traceback
 import numpy as np
-# from CtcSim.bullet.PB_test import ycb_opt_fetcher
 import torch.multiprocessing as mp
-
-# import sys
-# sys.path.append(osp.join(osp.dirname(osp.abspath(__file__)), "CtcSim", "bullet"))
 
 
 class SubsetRestartSampler(Sampler):
@@ -211,17 +205,6 @@ class Optimization:
         if self.task == "NV":
             self.target = torch.cat((self.obj_model.hand_model.get_keypoints().squeeze(), torch.tensor([0., 0., 0.], device=self.device).view(1, 3)), dim=0)
 
-        #create the result directory
-        # if task == "GH":
-        #     self.result_dir = osp.join(osp.dirname(__file__), "results", self.robot.robot_model, "mu%.1f" % self.obj_model.loss.mu.item())
-        # elif task == "NV":
-        #     self.result_dir = osp.join(osp.dirname(__file__), "results_nv", self.robot.robot_model, "mu%.1f" % self.obj_model.loss.mu.item())
-        #     self.target = torch.cat((self.obj_model.hand_model.get_keypoints().squeeze(), torch.tensor([0., 0., 0.], device=self.device).view(1, 3)), dim=0)
-        # else:
-        #     raise ValueError("task should be either GH or NV")
-        
-        # if not osp.exists(self.result_dir):
-        #     os.makedirs(self.result_dir)
         print('x',self.x)
     
     def penetration_check(self, q):
@@ -389,7 +372,6 @@ class Optimization:
                  converge = True
         self.fc_early_stop.reset()
         return data
-        #print(description,'x',self.x,'w',self.w)
 
     def gf_optimization_verbose(self, pbar):
         converge = False
@@ -1307,102 +1289,6 @@ class Optimization:
             legend=dict(font=dict(color='rgba(0,0,0,0)'))  # Transparent legend
             )
         fig.show() 
-    
-    def fix_errored_optimization(self, fetcher):
-        bar = tqdm(enumerate(fetcher), total=len(fetcher))
-        for idx, data_pack in enumerate(bar):
-            if type(data_pack[1]["rob_quat"]) == int:
-                print("retake", idx, "th optimization")
-                self.run_idx_json(idx)
-            else:
-                continue
-
-    def fix_errored_optimization_nv(self, fetcher):
-        bar = tqdm(enumerate(fetcher), total=len(fetcher))
-        for idx, data_pack in enumerate(bar):
-            if type(data_pack[1]["rob_quat"]) == int:
-                print("retake", idx, "th optimization")
-                self.run_idx_json_nv(idx)
-            else:
-                continue
-    
-    def retake_optimization(self, fetcher):
-        "loading the failed simulation "
-        bar = tqdm(enumerate(fetcher), total=len(fetcher))
-        indices = []
-        for idx, data_pack in enumerate(bar):
-
-            print("data_pack", data_pack[1].item())
-            if data_pack[1].item() == 0 or data_pack[1].item() == -1:
-                # print("retake", idx, "th optimization")
-                # self.run_idx_json(idx)
-                indices.append(idx)
-            else:
-                print("skip", idx, "th optimization")
-                continue
-        indices = torch.tensor(indices, dtype=torch.long)
-        print(indices)
-        self.run_wo_gq(restart=None, indices=indices)
-
-def retake_opt_fixsim(robots, todo):
-    maximum_iter=[7000, 1, 1000]
-    
-    for robot in robots:
-        for mu in todo[robot.robot_model]:
-
-            datasample = 20
-            dataset = dexycb_testfullfeed(load_mesh=True, 
-                                          pc_sample=1024, 
-                                          data_sample=datasample)
-
-            opt = Optimization(robot=robot, 
-                            dataset=dataset, 
-                            device="cuda:0", 
-                            maximum_iter=maximum_iter, 
-                            visualize=True, 
-                            repeat=1, 
-                            mu=mu, 
-                            task="GH")
-            fetcher_ = sim_result_loader(robot=robot.robot_model,
-                                       mu = mu, 
-                                       repeat=1)
-            for idx, data_pack in enumerate(fetcher_):
-                if data_pack == 0:
-                    print("retake", idx, "th optimization")
-                    opt.run_idx_json(idx,save=True)
-
-def retake_opt_fixexception(robots, todo):
-    maximum_iter=[7000, 1, 1000]
-    
-    for robot in robots:
-        for mu in todo[robot.robot_model]:
-
-            if robot.robot_model == "Shadow":
-                datasample = 5
-            else:
-                datasample = 20
-            dataset = dexycb_testfullfeed(load_mesh=True, 
-                                          pc_sample=1024, 
-                                          data_sample=datasample)
-
-            opt = Optimization(robot=robot, 
-                            dataset=dataset, 
-                            device="cuda:0", 
-                            maximum_iter=maximum_iter, 
-                            visualize=True, 
-                            repeat=1, 
-                            mu=mu, 
-                            task="GH")
-            fetcher_ = ycb_opt_fetcher(robot_name=robot.robot_model,
-                                       mu = mu, 
-                                       exp_name='genhand', 
-                                       repeat=1, 
-                                       data_sample=datasample, 
-                                       task='test')
-            for idx, data_pack in enumerate(fetcher_):
-                if type(data_pack["rob_quat"]) == int:
-                    print("retake", idx, "th optimization")
-                    opt.run_idx_json(idx,save=True)
                 
 def plot_idx(idx, robot):
     task = "GH"
@@ -1549,69 +1435,3 @@ def run_optimization_mp_2():
 
 if __name__ == "__main__":
     run_optimization_mp_2()
-
-    # robot_1 = Shadow(batch=1, device="cuda:0")
-    # robot_2 = Shadow(batch=1, device="cuda:1")
-    # task_1 = "GH"
-    # task_2 = "NV"
-    # run_optimization_mp(robot_1, robot_2, task_1, task_2)
-    # ind = 19
-    # index_gh(ind, Shadow(batch=1, device="cuda:1")) #887
-    # index_gh(ind, Allegro(batch=1, device="cuda:1")) #887
-    # index_gh(ind, Barrett(batch=1, device="cpu")) #887
-    # index_gh(ind, Robotiq(batch=1, device="cpu")) #887
-    # run_optimization_nv(Shadow(batch=1, device="cuda:0"), "NV")
-    # run_optimization(Allegro(batch=1, device="cuda:0"), "NV")
-    # run_optimization(Barrett(batch=1, device="cuda:0"), "NV")
-    # run_optimization(Robotiq(batch=1, device="cuda:0"), "NV")
-
-    # retake_optimization_()
-    # plot_idx(3205, Robotiq(batch=1, device="cuda:0"))
-    # torch.autograd.set_detect_anomaly(True)
-    # idx = 22
-    # task = "GH"
-    # # maximum_iter=[7000, 2, 1000]
-    # maximum_iter=[7000, 1, 1000]
-    # # robot = Shadow(batch=1, device="cuda:1")
-    # # robot = Allegro(batch=1, device="cuda:1")
-    # # robot = Barrett(batch=1, device="cuda:1")
-    # robot = Robotiq(batch=1, device="cuda:1")
-    # dataset = dexycb_testfullfeed(load_mesh=True, pc_sample=2048, data_sample=20)
-    # print('get dataset')
-    # opt = Optimization(robot=robot, dataset=dataset, device="cuda:1", maximum_iter=maximum_iter, visualize=True, repeat=1, mu=0.1, task=task)
-    # # opt.run_viz(idx)
-    # # opt.run_idx_json(idx)
-    # if task == "NV":
-    #     opt.run_idx_json_nv(idx)
-    # else:
-    #     opt.run_idx_json(idx, True)
-    # opt.run_wo_gq()
-    # for robot in [Robotiq(batch=1, device="cuda:1")]:
-    #     for mu in [0.1, 0.3, 0.5, 0.7, 0.9]:
-    #         opt = Optimization(robot=robot, dataset=dataset, device="cuda:1", maximum_iter=maximum_iter, visualize=True, repeat=1, mu=mu, task="NV")
-    #         opt.run_wo_gq_nv(restart=0)
-    #     restart = 0
-    #     #rerun 0.1 243-249 Allegro
-    # for mu in [0.1, 0.3, 0.5, 0.7, 0.9]:
-    #     opt = Optimization(robot=robot, 
-    #                        dataset=dataset, 
-    #                        device="cuda:1", 
-    #                        maximum_iter=maximum_iter, 
-    #                        visualize=True, 
-    #                        repeat=1, 
-    #                        mu=mu, 
-    #                        task="NV")
-        
-    #     fetcher = ycb_opt_fetcher(robot_name=robot.robot_model, 
-    #                               mu = mu, 
-    #                               exp_name="nv", 
-    #                               repeat=1, 
-    #                               data_sample=20)
-    #     opt.fix_errored_optimization_nv(fetcher)
-    # todo = dict(
-    #             Shadow = [0.9]
-    #             )
-    # robots = [Shadow(batch=1, device="cuda:0")]#[Robotiq(batch=1, device="cuda:1")]
-    # retake_opt_fixsim(robots, todo)
-    # retake_optimization_(robots,todo)
-    # index_gh(3, robots[0])

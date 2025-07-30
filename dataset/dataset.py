@@ -50,7 +50,7 @@ class CtcSDF_dataset(Dataset):
         return self.len
     
     def load_image(self, path):
-        img = cv2.imread(path, cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
+        img = cv2.imread(path, cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)  # type: ignore
         if not isinstance(img, np.ndarray):
             raise IOError("Fail to read %s" % path)  
          
@@ -200,8 +200,8 @@ class CtcSDF_dataset(Dataset):
             pred_obj_mesh = trimesh.load(pred_obj_mesh_path, process=False)
             gt_obj_mesh = trimesh.load(gt_obj_mesh_path, process=False)
 
-            pred_obj_points, _ = trimesh.sample.sample_surface(pred_obj_mesh, 30000)
-            gt_obj_points, _ = trimesh.sample.sample_surface(gt_obj_mesh, 30000)
+            pred_obj_points, _, *_ = trimesh.sample.sample_surface(pred_obj_mesh, 30000)
+            gt_obj_points, _, *_ = trimesh.sample.sample_surface(gt_obj_mesh, 30000)
             pred_obj_points *= 100.
             gt_obj_points *= 100.            
             

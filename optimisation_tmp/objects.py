@@ -724,35 +724,17 @@ class object_sdf():
             return torch.norm(selected,p=2,dim=-1).mean(), torch.tensor(dist[idx]).to(wrench.device)
         B,N,d = x.shape
         val, normal = self.pv_sdf(x)
-        # x_norm = x - x.mean(dim=1) /torch.norm(x, dim = -1).max()
         x_norm = x
-        # x_norm = x*8.33
-        # print("factor", 1/torch.norm(x, dim = -1).max())
-        # print("x_norm", x_norm)
-        # print("x", x)
-        # x_norm = x*120
-        # normal[val >= 0] *= -1
-
-        #print('w', w)
         f, we = self.loss.linearized_cone(normal, w) # f: B x N x 3, we: B x N x 4 x 3
         # calculate the wrench space
-        #w_space = torch.matmul(G.reshape(B*4*N, 6, 3), we.reshape(B*N*4, 3, 1)).view(B, 4*N, 6)
         w_space = self.loss.wrench_space(x_norm, we)
-
-        # calculate the convex hull
         selected, dist = convex_hull(w_space)
         intFC = self.loss.inter_fc(w)
 
         G_ = self.loss.x_to_G(x_norm)
         GG_ = self.loss.loss_8a(G_)
         gf = self.loss.loss_8b(f, G_)
-        
-        # selected_, dist = convex_hull(torch.matmul(G_, f.reshape(B, 3*N, 1)))
-        # wrench space loss
-        # x_expanded = x.repeat(1,4,1) # repeat the x for 4 times to match the 4-edge friction pyramid
-        # G = self.loss.x_to_G(x_expanded) # B x 6 x 3*4*N
-        # GG = self.loss.loss_8a(G)
-        # gf = self.loss.loss_8b(we.reshape(B, 4*N, 3), G)
+
         if with_x:
             
             sdf = self.sdf_loss(x)
@@ -761,45 +743,10 @@ class object_sdf():
             GG = self.loss.loss_8a(G)
             sum_ = 1*sdf + 1.*gf + 1*GG + 1*e_dist - 1*selected +1*intFC
             return dict(sdf=sdf, Gf=gf, GG=GG, distance=e_dist, intFC = intFC, radius=dist, loss=sum_)
-        # sum = .5*sdf + 1.*gf + 0.2*GG + 1*e_dist - 5*selected +1*intFC
-        # return dict(sdf=sdf, Gf=gf, GG=GG, distance=e_dist, intFC = intFC, radius=dist, loss=sum)
         else:
             sum_ = gf + intFC - 1*selected
             return dict(Gf=gf, intFC=intFC, radius=dist, loss=sum_)
 
-    def grasp_quality(self, x, w):
-        if self.contact_target is None:
-            self.hand_contact_cluster_v2()
-        B,N,_ = x.shape
-        val, normal = self.pv_sdf(x)
-        # normal[val >= 0] *= -1
-        normal *= -1
-        G = self.loss.x_to_G(x)
-        GG = self.loss.loss_8a(G)
-        f, we = self.loss.linearized_cone(normal, w)
-        wrench = self.loss.wrench_space(x, we)
-        Gf = self.loss.loss_8b(f, G)
-        intFC = self.loss.inter_fc(w)
-        sdf = self.sdf_loss(x)
-        e_dist = self.relu((torch.norm(x.squeeze(0) - self.contact_target, dim=-1) - 0.005)).sum()
-        
-        #r = ConvexHullLayer.apply(wrench.squeeze(0))
-        
-        we_norm = we.reshape(1,-1,3) / self.loss.e1.norm(p=2, dim=-1, keepdim=True)
-        r = ConvexHullLayer.apply(we_norm)
-
-        sum_ = .5*sdf + 1.*Gf + 0.2*GG + 1*intFC + 1*e_dist - 10*r
-
-        return dict(sdf=sdf, Gf=Gf, GG=GG, intFC=intFC, distance=e_dist, radius=r, loss=sum_)
-    
-    def gqm(self,x,w):
-        B,N,_ = x.shape
-        val, normal = self.pv_sdf(x)
-        normal[val >= 0] *= -1
-        f, we = self.loss.linearized_cone(normal, w)
-        wrench = self.loss.wrench_space(x, we)
-        r = ConvexHullLayer.apply(wrench.squeeze(0))
-        return r
 
     def draw(self, color="green", opacity = 0.5):
         obj_vert = self.obj_vert.squeeze().cpu().detach().numpy()
