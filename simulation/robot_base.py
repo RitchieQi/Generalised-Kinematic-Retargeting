@@ -10,7 +10,7 @@ from scipy.spatial.transform import Rotation as R
 from abc import ABC, abstractmethod
 import os
 from bullet_base import PybulletBase
-from utils import rodrigues, euler_to_mat
+from optimisation_tmp.utils import rodrigues, euler_to_mat
 import torch
 
 class robot(ABC):

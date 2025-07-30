@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils import soft_argmax, decode_volume, get_mano_preds
+
+
 class model(nn.Module):
     def __init__(self, backbone, neck, obj_sdf_head, mano_head, volume_head, train_batch_size, num_sample_points, clamp_dist, test_batch_size):
         super(model, self).__init__()
@@ -122,7 +124,6 @@ class model(nn.Module):
                 mano_feat = mano_feat.mean(3).mean(2)
                 hand_pose_results = self.mano_head(mano_feat)
                 hand_pose_results = get_mano_preds(hand_pose_results, self.image_size, metas['cam_intr'], metas['hand_center_3d'])
-                
                 
                 obj_pose_results = {}
                 obj_transform = torch.zeros(self.test_batch_size, 4, 4).to(input_img.device)

@@ -3,20 +3,17 @@ import pytorch_volumetric as pv
 import numpy as np
 import trimesh as tm
 import torch
-from CtcBot import human
+from optimisation_tmp.robot import human
 from torch.autograd import Function
-from loss import FCLoss
-from CvxH_layer import ConvexHullLayer_v3 as ConvexHullLayer
+from optimisation_tmp.loss import FCLoss
 from scipy.spatial import ConvexHull
 from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
-from time import time
-from scipy.optimize import linear_sum_assignment
 from sklearn.metrics import silhouette_score, silhouette_samples
 from typing import List
 from plotly import graph_objects as go
 from torch.nn.functional import relu
-import icp
+import optimisation_tmp.icp as icp
 from sklearn.decomposition import PCA
 import hdbscan
 class SDFLayer(Function):
@@ -185,9 +182,7 @@ class object_sdf():
         condition_sdf = sdf_val <= self.contact_threshold
         normal_similarity = torch.sum(hand_normal * sdf_normal, dim=-1)
         condition_antipodal = normal_similarity < -0.5
-        
-        
-        
+
         point_indices = torch.nonzero(condition_sdf & condition_antipodal, as_tuple=True)[0]
         print("contact points number", len(point_indices))
         contact_points = contact_pack[point_indices, :3]
@@ -450,9 +445,6 @@ class object_sdf():
 
         #normalize the points
         contact_points_c = contact_points - contact_points.mean(dim=0)
-        # contact_points_n = contact_points_c / torch.norm(contact_points_c, dim=-1).max()
-        #reconcatenate the points and normals
-        # contact_pack_n = torch.hstack([contact_points_n, contact_normals])
         contact_normals = contact_normals.cpu().detach().numpy()    
         contact_points  = contact_points.cpu().detach().numpy()
 
@@ -487,12 +479,6 @@ class object_sdf():
         self.labels_p = labels_p
         self.contact_points = contact_points
         self.contact_normals = contact_normals
-        print("labels_n", labels_n)
-        print("labels_p", labels_p)
-        
-
-        print("uniq_labels_n", uniq_labels_n)
-        print("uniq_labels_p", uniq_labels_p)
 
         if np.all(labels_n==-1) or np.all(labels_p==-1):
             print("hdbscan failed, try kmeans")
@@ -504,12 +490,8 @@ class object_sdf():
         p_collection = {}
         for labels in uniq_labels_n:
             indices = np.where(labels_n == labels)[0]
-            print("indices", indices)
             p_in_n = labels_p[indices]
-            print("p_in_n", p_in_n)
             p_in_n, indices = filter_labels_by_threshold(p_in_n, indices)
-            print("p_in_n after", p_in_n)
-            print("indices after", indices)
             n_components[labels] = p_in_n
             centroid_n[labels] = np.mean(contact_normals[indices], axis=0)/np.linalg.norm(contact_normals[indices])
             p_cenroid_ = []
@@ -520,15 +502,12 @@ class object_sdf():
                 p_collector.append(contact_points[indices[indices_p]])
             centroid_p[labels] = np.array(p_cenroid_)
             p_collection[labels] = np.array(p_collector)
-        # print("p_collection", p_collection)
-        # print("n_components", n_components)
+
         self.n_components = n_components
         centroid_n_ = np.array([centroid_n[labels] for labels in uniq_labels_n]) # the normal cluster centroids array
         centroid_p_ = np.vstack([centroid_p[labels] for labels in uniq_labels_n]) # n np.array n is the number of normal clusters
         centroid_p_n = np.vstack([centroid_p[labels].mean(axis=0) for labels in uniq_labels_n]) 
-        # print("centroid_p", centroid_p)
-        # print("centroid_p_", centroid_p_)
-        # if self.robot_contact == n_hand_contacts
+
 
         if n_normal_components > 2:
             dist_matrix = cdist(centroid_n_, centroid_n_)
@@ -538,8 +517,6 @@ class object_sdf():
             pca_base_ = p_collection[i] if centroid_p[i].shape[0] > centroid_p[j].shape[0] else p_collection[j]
             #pca_base = pca_base.squeeze()
             pca_base = np.vstack(np.atleast_1d(pca_base_)).astype(np.float32)
-            # print(pca_base.shape)
-            # print("contact_candidates", contact_candidates)
             uniq_labels_n = np.delete(uniq_labels_n, np.where(uniq_labels_n == i))
             uniq_labels_n = np.delete(uniq_labels_n, np.where(uniq_labels_n == j))
             pca_base_list = np.vstack([p for i in uniq_labels_n for p in p_collection[i]])
@@ -579,14 +556,9 @@ class object_sdf():
 
         print(self.contact_target)
 
-
     def sdf_loss(self, points):
-
-        #sdf_val, sdf_grad = pv_sdf(points)
         sdf_val = SDFLayer.apply(points, self.pv_sdf)
-
         return (sdf_val**2).sum()
-        #return relu(-sdf_val+1e-6).sum()
             
     def extreme_distance(self, n, n_t):
         N,D = n.size()
@@ -621,11 +593,11 @@ class object_sdf():
 
     def minimum_internal_distance(self, x):
         x = x.view(-1, 3)
-        dist_matrix = torch.cdist(x, x, p=2)  # Shape: (N, N)
+        dist_matrix = torch.cdist(x, x, p=2)
         eye = torch.eye(x.shape[0], device=x.device) * 1e6
         dist_matrix = dist_matrix + eye        
-        min_dists = torch.min(dist_matrix, dim=1)[0]  # Minimum distance to any other point
-        penalty = self.relu(0.01 - min_dists)  # Penalize if too close (< 0.01)
+        min_dists = torch.min(dist_matrix, dim=1)[0]
+        penalty = self.relu(0.01 - min_dists)
         return penalty.sum()
 
     def get_weighted_edges(self, x, w):
@@ -747,7 +719,6 @@ class object_sdf():
             sum_ = gf + intFC - 1*selected
             return dict(Gf=gf, intFC=intFC, radius=dist, loss=sum_)
 
-
     def draw(self, color="green", opacity = 0.5):
         obj_vert = self.obj_vert.squeeze().cpu().detach().numpy()
         obj_face = self.obj_face.squeeze().cpu().detach().numpy()
@@ -760,42 +731,3 @@ class object_sdf():
         # penetration = sdf_val[sdf_val <= 0].mean()
         # print(penetration)
         return relu(-sdf_val).sum()
-        
-if __name__ == '__main__':
-    # from dexycb import dexycb
-    # dex_train = dexycb('s1', 'train')
-    # obj, hand, transe3 = dex_train.process(dex_train.getdata[8000])
-    # #print(obj.vertices.shape, hand.vertices.shape)
-    # obj_model = object_sdf(contact_threshold=0.001, device = "cuda:0", robot_contact = 2)
-    # #_ = obj_model.hand_contact_cluster()
-    # obj_model.reset([torch.tensor(obj.vertices).float().to("cuda:0"), torch.tensor(obj.faces).long().to("cuda:1")], [torch.tensor(hand.vertices).float().to("cuda:1"), torch.tensor(hand.faces).long().to("cuda:1")], torch.tensor(transe3).float().to("cuda:1"))
-    # obj_model.hand_contact_cluster_hdbscan()
-    # #print(obj_model.hand_contact_cluster_mano_agnostic())
-    
-    from CtcOptimize import Optimization
-    from CtcBot import Shadow, Allegro, Barrett, Robotiq
-    #idx = 34
-    idx = 60
-    from CtcSDF.CtcDst import dexycb_testfullfeed
-    # maximum_iter=[7000, 2, 1000]
-    maximum_iter=[7000, 2, 1]
-    robot = Shadow(batch=1, device="cuda:1")
-    # robot = Allegro(batch=1, device="cuda:1")
-    # robot = Barrett(batch=1, device="cuda:1")
-    # robot = Robotiq(batch=1, device="cuda:1")
-    dataset = dexycb_testfullfeed(load_mesh=True, pc_sample=2048, data_sample=20)
-    print('get dataset')
-    opt = Optimization(robot=robot, dataset=dataset, device="cuda:1", maximum_iter=maximum_iter, visualize=True, repeat=1, mu=0.9)
-    
-    input_pack, obj_pack, mano_pack = opt.dataset[idx]
-    color = input_pack['color_img']
-
-    obj_mesh_v = obj_pack["verts"].to(opt.device).unsqueeze(0)
-    obj_mesh_f = obj_pack["faces"].to(opt.device).unsqueeze(0)
-    obj_certre = obj_pack["centre"].to(opt.device).unsqueeze(0)
-    hand_mesh_v = mano_pack["verts"].to(opt.device).unsqueeze(0)
-    hand_mesh_f = mano_pack["faces"].to(opt.device).unsqueeze(0)
-    joints = mano_pack["joint"].to(opt.device).unsqueeze(0)
-    hand_transformation = mano_pack["transformation"].to(opt.device).unsqueeze(0)
-    opt.initialization(obj_mesh_v, obj_mesh_f, obj_certre, hand_mesh_v, hand_mesh_f, joints, hand_transformation)
-    opt.obj_model.hand_contact_cluster_hdbscan()

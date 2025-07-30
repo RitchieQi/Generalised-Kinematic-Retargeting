@@ -11,7 +11,7 @@ import pandas as pd
 import trimesh
 import shutil
 import os.path as osp
-from dataset import CtcSDF_dataset
+from dataset.dataset import CtcSDF_dataset
 from tqdm import tqdm
 
 def evaluate(queue, db, output_dir):

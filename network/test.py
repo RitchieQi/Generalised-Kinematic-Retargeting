@@ -5,7 +5,7 @@ import argparse
 from tqdm import tqdm
 import torch
 from loguru import logger
-from utils import export_pose_results
+from optimisation_tmp.utils import export_pose_results
 from training_utils import Tester
 import torch.multiprocessing as mp
 from torch.distributed import init_process_group, destroy_process_group, all_reduce

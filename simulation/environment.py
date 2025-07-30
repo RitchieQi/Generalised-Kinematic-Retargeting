@@ -26,7 +26,7 @@ from object_base import objects
 from robot_base import shadow, allegro, barrett, robotiq, MountingBase
 from opt_results_loader import ycb_opt_fetcher
 from trajectory import Trajectory
-from utils import rotate_vector, rotate_vector_inverse, quat_mult
+from optimisation_tmp.utils import rotate_vector, rotate_vector_inverse, quat_mult
 class Environment:
     def __init__(self,
                  robot: str = "Shadow",

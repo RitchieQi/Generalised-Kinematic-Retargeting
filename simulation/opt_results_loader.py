@@ -13,7 +13,7 @@ import cv2
 from manopth.manolayer import ManoLayer
 import traceback
 import os
-from utils import rodrigues
+from optimisation_tmp.utils import rodrigues
 
 
 class ycb_opt_fetcher(Dataset):

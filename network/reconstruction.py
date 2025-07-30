@@ -7,8 +7,8 @@ import os
 import yaml
 import json
 from loguru import logger
-from networks.networks import kinematic_embedding
-from networks.solver import icp_ts
+from networks import kinematic_embedding
+from solver import icp_ts
 from manopth.manolayer import ManoLayer
 import traceback
 import os.path as osp

@@ -1,20 +1,16 @@
 import json
 #import pickle
-from tqdm import tqdm
 import os
 import cv2
 from manopth.manolayer import ManoLayer
 from dex_ycb_toolkit.dex_ycb import DexYCBDataset
 from torch.utils.data import Dataset
 import torch
-import shutil
 import numpy as np
 import json
 from dex_ycb_toolkit.factory import get_dataset
 import open3d as o3d
 import matplotlib.pyplot as plt
-import pyrender
-import traceback
 import trimesh
 osp = os.path
 
